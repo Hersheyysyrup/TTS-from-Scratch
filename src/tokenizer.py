@@ -1,5 +1,5 @@
 import torch
-class Tokenizer:
+class tokenizer:
 
     def __init__(self):
 
