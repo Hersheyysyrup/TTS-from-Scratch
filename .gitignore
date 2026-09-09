@@ -1,2 +1,12 @@
-# Dataset
-dataset/
+__pycache__/
+*.py[cod]
+
+data/
+*.wav
+
+.ipynb_checkpoints/
+
+.vscode/
+
+.DS_Store
+Thumbs.db
