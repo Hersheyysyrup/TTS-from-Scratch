@@ -46,7 +46,7 @@ def denormalize (x,
     x = x* -min_db + min_db
     return x
 
-class AudioMelConversion:
+class AudioMelConversions:
     def __init__(self,
                  num_mels = 80,
                  sampling_rate = 22050,
@@ -69,6 +69,7 @@ class AudioMelConversion:
         self.max_scaled_abs = max_scaled_abs
 
         self.spec2mel = self.__get__spec2mel_proj()
+        self.mel2spec = torch.linalg.pinv(self,self.spec2mel)
 
     def __get__spec2mel_proj(self):
         mel = librosa.filters.mel( sr = self.sampling_rate,
@@ -105,13 +106,87 @@ class AudioMelConversion:
 
         return (mel)
 
+    def mel2audio(self, mel, do_norm = False, griffin_lim_iter=50): #griffin lim iter turns a spectrogram back to audio file
+
+        if do_norm:
+            mel = denormalize(mel,min_db=self.min_db, max_abs_val=self.max_scaled_abs)
+
+        mel = db_to_amp(mel)
+
+        spectrogram = torch.matmmul(self.mel2spec.to(mel.device), mel).cpu().numpy()
+
+        audio = librosa.griffinlim(S = spectrogram,
+                                   n_iter = griffin_lim_iter,
+                                    hop_length = self.hop_size,
+                                     win_length= self.window_size,
+                                      n_fft=self.n_fft,
+                                       window = "hann" )
+
+        audio *= 32767/ max (0.01, np.max(np.abs(audio)))
+        audio = audio.astype(np.int16)
+        return audio
+
+    class TTSDataset(Dataset):
+        def __init__(self,
+                     path_to_metadata,
+                     sample_rate = 22050,
+                     n_fft = 1024,
+                     window_size = 256,
+                     hop_size = 256,
+                     fmin = 0,
+                     fmax = 8000,
+                     num_mels = 80,
+                     center = False,
+                     normalized = False,
+                     min_db = -100,
+                     max_scaled_abs = 4):
+
+            self.metadata = pd.read_csv(path_to_metadata)
+            self.sample_rate = sample_rate
+            self.n_fft = n_fft
+            self.win_size = window_size
+            self.hop_size = hop_size
+            self.fmin = fmin
+            self.fmax = fmax
+            self.num_mels = num_mels
+            self.center = center
+            self.normalized = normalized
+            self.min_db = min_db
+            self.max_scaled_abs = max_scaled_abs
+
+            self.transcript_length = [len(tokenizer().encode(t)) for t in self.metadata["normalized_transcript"]]
+            self.audio_proc = AudioMelConversions(num_mels = self.num_mels,
+                                                  sampling_rate = self.sample_rate,
+                                                  n_fft= self.n_fft,
+                                                  window_size= self.win_size,
+                                                  hop_size = self.hop_size,
+                                                  fmin= self.fmin,
+                                                  fmax = self.fmax,
+                                                  center=self.center,
+                                                  min_db= self.min_db,
+                                                  max_scaled_abs= self.max_scaled_abs)
+
+            def __len__(self):
+                return len(self.metadat)
+
+            def __getitem__(self, idx):
+
+                sample = self.metadata.iloc[idx]
+
+                path_to_audio = sample["file_path"]
+                transcript = sample["normalized_transcript"]
+
+                audio = load_wav(path_to_audio, sr = self.sample_rate)
+                mel = self.audio_proc.audio2mel(audio, do_norm = True)
+
+                return transcript, mel.squeeze(0)
 
 if __name__ == "__main__":
     path_to_audio = r"D:\TTS\data\LJSpeech-1.1\wavs\LJ034-0199.wav"
     audio = load_wav(path_to_audio)
     print(audio)
 
-    amc = AudioMelConversion()
+    amc = AudioMelConversions()
     mel = amc.audio2mel(audio, do_norm=True)
     print(mel)
     
