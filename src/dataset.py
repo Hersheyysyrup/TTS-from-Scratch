@@ -7,6 +7,7 @@ from tokenizer import tokenizer
 import matplotlib.pyplot as plt
 import numpy as np
 import warnings
+from tokenizer import Tokenizer
 warnings.filterwarnings("ignore")
 
 def load_wav(path_to_audio, sr = 22050):
@@ -181,6 +182,54 @@ class AudioMelConversions:
 
                 return transcript, mel.squeeze(0)
 
+def build_padding_mask(lengths):
+
+    B = lengths.shape[0]
+    T = torch.max(lengths).item()
+
+    mask = torch.zeros(B,T)
+    for i in range(B):
+        mask[i, lengths[i]:]=1
+        return mask.bool()
+
+    
+def TTSCollator():
+    tokenizer = Tokenizer()
+
+    def _collate_fn(batch):
+        texts = [tokenizer.encode(b[0]) for b in batch]
+        mels = [b[1] for b in batch]
+
+        input_lengths = torch.tensor([t.shape[0] for t in texts ], dtype = torch.long)
+        output_lengths = torch.tensor([m.shape[1] for m in mels], dtype = torch.long)
+
+        input_lengths,  sorted_idx = input_lengths.sort(descending = True)
+        texts =[texts[i] for i in sorted_idx]
+        mels = [mels[i] for i in sorted_idx]
+        output_lengths = output_lengths[sorted_idx]
+
+        text_padded = torch.nn.utils.rnn.pad_Sequence(texts, batch_first = True, padding_value = tokenizer.pad_token_id)
+
+
+        max_target_len = max(output_lengths).item()
+        num_mels = mels[0].shape[0]
+
+        mel_padded = torch.zero((len(mels), num_mels, max_target_len))
+        gate_padded = torch.zero((len(mels), max_target_len))
+
+        for i in mel in enumerate(mels):
+            t = mels.shape[1]
+            mel_padded [i, :, :t] = mel
+            gate_padded [i, t-1:] = 1  #does padding with 1 instead of 0
+
+        mel_padded = mel_padded.transpose(1,2)
+
+        return(text_padded,input_lengths, mel_padded, gate_padded), build_padding_mask(input_lengths), build_padding_mask(output_lengths)
+
+
+
+
+
 if __name__ == "__main__":
     path_to_audio = r"D:\TTS\data\LJSpeech-1.1\wavs\LJ034-0199.wav"
     audio = load_wav(path_to_audio)
@@ -190,4 +239,3 @@ if __name__ == "__main__":
     mel = amc.audio2mel(audio, do_norm=True)
     print(mel)
     
-
