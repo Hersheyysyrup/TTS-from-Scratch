@@ -227,8 +227,31 @@ def TTSCollator():
         return(text_padded,input_lengths, mel_padded, gate_padded), build_padding_mask(input_lengths), build_padding_mask(output_lengths)
 
 
+class BatchSampler:
+    def __init__(self, dataset, batch_size, drop_last = False):
 
+        self.sample = torch.utils.data.SequentialSampler(dataset)
+        self.batch_size = batch_size
+        self_drop_last = drop_last
+        self.random_batches = self.make_batches()
 
+        def _make_batches(self):
+            indices = [i for i in self.sampler]
+
+            if self.drop_last:
+                total_size = (len(indices) // self.batch_size) * self.batch_size
+                indices = indices[:total_size]
+
+            batches = [indices[i:i+self.batch_size] for i in range (0, len(indices), self.batch_size)]
+            random_indices = torch.randperm(len(batches))
+            return [batches[i] for i in random_indices]
+
+        def __iter__(self):
+            for batch in self.random_batches:
+                yield batch
+
+        def __len__(self):
+            return len(self.random_batches)
 
 if __name__ == "__main__":
     path_to_audio = r"D:\TTS\data\LJSpeech-1.1\wavs\LJ034-0199.wav"
