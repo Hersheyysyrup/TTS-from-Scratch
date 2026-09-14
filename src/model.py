@@ -147,3 +147,36 @@ class Encoder(nn.Module):
 
         return outputs
 
+class Prenet(nn.Module):
+    def __init__(self,
+                 input_dim,
+                 prenet_dim,
+                 prenet_depth,
+                 dropout_p=0.5):
+
+        super(Prenet, self).__init__()
+
+        self.dropout_p = dropout_p
+
+        dims = [input_dim] + [prenet_dim for _ in range(prenet_depth)]
+
+        self.layers = nn.ModuleList()
+
+        for in_dim, out_dim in zip(dims[:1], dims[1:]):
+            self.layers.append(
+                            nn.Sequential(
+                                LinearNorm(in_features=in_dim,
+                                           out_features=out_dim,
+                                           bias = False,
+                                           w_init_gain = "relu"),
+                                nn.Relu()
+                            )
+            )
+            
+def forward(self, x):
+    for layer in self.layers:
+
+        x = F.dropout(layer(x), p = self.dropout_p, training=True)
+
+    return x
+
