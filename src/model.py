@@ -204,7 +204,7 @@ class LocationLayer(nn.Module):
         attention_weights= self.proj(attention_weights)
         return attention_weights
 
-class LocationSensetiveAttention(nn.Module):
+class LocalSensitiveAttention(nn.Module):
     def __init___(self,
                   atttention_dim,
                   decoder_hidden_size,
@@ -212,7 +212,7 @@ class LocationSensetiveAttention(nn.Module):
                   attention_n_filters,
                   attention_kernel_size):
 
-        super(LocationSensetiveAttention, self).__init__()
+        super(LocalSensitiveAttention, self).__init__()
 
         self.in_proj = LinearNorm(decoder_hidden_size, atttention_dim, bias= True, w_init_gain= "tanh")
         self.enc_proj = LinearNorm(encoder_hidden_size, atttention_dim, bias = True, w_init_gain="tanh")    
@@ -322,3 +322,37 @@ class PostNet(nn.Module):
             x = conv_block(x)
         x = x.transpose(1,2)
         return x
+
+class Decoder(nn.Module):
+    def __init__(self, config):
+        super(Decoder, self).__init__()
+
+        self.config = config
+
+        self.prenet = Prenet(input_dim = self.config.num_mels,
+                             prenet_dim = self.config.decoder_prenet_dim,
+                             prenet_depth= self.config.decoder_prenet_depth)
+
+        self.rnn = nn.ModuleList(
+            [
+                nn.LSTMCell (config.decoder_prent_dim + config.encoder_embed_dim, config.decoder_embed_dim),
+                nn.LSTMCell(config.decoder_embed_dim + config.encoder_embed_dim, config.decoder_embed_dim)
+            ]
+        )
+
+        self.attention = LocalSensitiveAttention(attention_dim = config.attention_dim,
+                                                 decoder_hiddden_size = config.decoder_embed_dim,
+                                                 encoder_hidden_size = config.encoder_embed_dim,
+                                                 attention_n_filters = config.attention_location_n_filters,
+                                                 attention_kernel_size = config.attention_location_kernel_size)
+
+        self.mel_proj = LinearNorm(config.decoder_embed_dim + config.encoder_embed_dim, config.num_mels)
+        self.stop_proj = LinearNorm(config.decoder_embed_dim + config.encoder_embed_dim, 1 , w_init_gain = "sigmoid")
+
+        self.postnet = PostNet(
+            num_mels = config.num_mels,
+            postnet_num_convs= config.decoder_postnet_num_convs,
+            postnet_n_filters = config.decoder_postnet_n_filters,
+            postnet_kernel_size= config.decoder_postnet_kernel_size,
+            postnet_dropout_p= config.decoder_postnet_drop_out_p
+        )
