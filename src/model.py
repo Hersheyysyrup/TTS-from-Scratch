@@ -356,3 +356,58 @@ class Decoder(nn.Module):
             postnet_kernel_size= config.decoder_postnet_kernel_size,
             postnet_dropout_p= config.decoder_postnet_drop_out_p
         )
+
+def __init__decoder(self, encoder_outputs, encoder_mask = None):
+
+    B, S, E = encoder_outputs.shape
+    device = encoder_outputs.device
+
+    self.h = [torch.zeros(B, self.config.decoder_embed_dim, device = device ) for _ in range(2)]
+    self.c = [torch.zeros(B, self.config.decoder_embed_dim, device = device) for _ in range(2)]
+
+    self.cumulative_attn_weight = torch.zeros(B,S, device=device)
+    self.attn_weight = torch.zeros(B,S, device = device)
+    self.attn_context = torch.zeros(B, self.config.encoder_embed_dim, device = device)
+
+    self.encoder_outputs = encoder_outputs
+    self.encoder_mask = encoder_mask
+
+def _bos_frame(self, B):
+    start_frame_zeros = torch.zeros(B, 1 , self.config.num_mels)
+    return start_frame_zeros
+def decode(self, mel_step):
+
+    rnn_input = torch.cat([mel_step, self.attn_context], dim = -1)
+
+    self.h[0], self.c[0] = self.rnn[0](rnn_input, (self.h[0], self.c[0]))
+
+    attn_hidden = F.dropout(self.h[0], self.config.attention_dropout_p, self.training)
+
+    attn_weights_cat = torch.cat(
+        [
+            #BX2XS
+            self.attn_weight.unsqueeze(1), self.cumulative_attn_weight.unsqueeze(1)
+        ], dim = 1
+    )
+
+    attention_context , attention_weights = self.attention(
+        attn_hidden,
+        self.encoder_outputs,
+        attn_weights_cat,
+        mask = self.ecoder_mask
+    )
+
+    self.attn_weight = attention_weights #BXS
+    self.cumulative_attn_weight = self.cumulative_attn_weight +attention_weights
+    self.atten_context = attention_context
+
+    decoder_input = torch.cat([attn_hidden, self.attn_context], dim = -1)
+    self.h[1], self.c[1] = self.rnn [1] (decoder_input, (self.h[1], self.c[1]))
+    decoder_hidden = F.dropout(self.h[1], self.config.decoder_dropout_p, self.training)
+
+    next_pred_input = torch.cat([decoder_hidden, self.attn_context], dim = -1)
+
+    mel_out = self.mel_proj(next_pred_input)
+    stop_out = self.stop_proj(next_pred_input)
+
+    return mel_out, stop_out, attention_weights
