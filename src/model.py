@@ -46,7 +46,7 @@ class LinearNorm(nn.Module):
                  in_features,
                  out_features,
                  bias = True,
-                 w_init_grain = "linear"):
+                 w_init_gain = "linear"):
 
         super(LinearNorm, self).__init__()
 
@@ -54,7 +54,7 @@ class LinearNorm(nn.Module):
 
         torch.nn.init.xavier_uniform_(
             self.linear.weight,
-            gain = torch.nn.init.calculate_gain(w_init_grain)
+            gain = torch.nn.init.calculate_gain(w_init_gain)
         )
 
     def forward (self, x):
@@ -72,7 +72,7 @@ class ConvNorm(nn.Module):
                  padding = None,
                  dilation = 1,
                  bias = True,
-                 w_init_grain = "linear"):
+                 w_init_gain = "linear"):
 
         super(ConvNorm, self).__init__()
 
@@ -85,7 +85,7 @@ class ConvNorm(nn.Module):
 
         torch.nn.init.xavier_uniform_(
             self.conv.weight,
-            gain = torch.nn.init.calculate_gain(w_init_grain)
+            gain = torch.nn.init.calculate_gain(w_init_gain)
         )
 
     def forward (self, x):
@@ -110,7 +110,7 @@ class Encoder(nn.Module):
                         stride = 1,
                         padding = "same",
                         dilation= 1,
-                        w_init_grain="relu"
+                        w_init_gain="relu"
 
                     ),
 
@@ -195,7 +195,7 @@ class LocationLayer(nn.Module):
             bias = False,
         )
 
-        self.proj = LinearNorm(attention_n_filters, attention_dim, bias = False, w_init_grain="tanh")
+        self.proj = LinearNorm(attention_n_filters, attention_dim, bias = False, w_init_gain="tanh")
 
     def forward(self, attention_weights):
 
@@ -214,8 +214,8 @@ class LocationSensetiveAttention(nn.Module):
 
         super(LocationSensetiveAttention, self).__init__()
 
-        self.in_proj = LinearNorm(decoder_hidden_size, atttention_dim, bias= True, w_init_grain= "tanh")
-        self.enc_proj = LinearNorm(encoder_hidden_size, atttention_dim, bias = True, w_init_grain="tanh")    
+        self.in_proj = LinearNorm(decoder_hidden_size, atttention_dim, bias= True, w_init_gain= "tanh")
+        self.enc_proj = LinearNorm(encoder_hidden_size, atttention_dim, bias = True, w_init_gain="tanh")    
 
         self.what_have_i_said = LocationLayer(
             attention_n_filters,
@@ -223,7 +223,7 @@ class LocationSensetiveAttention(nn.Module):
             atttention_dim,
         )   
 
-        self.energy_proj = LinearNorm(atttention_dim, 1 ,bias= False, w_init_grain="tanh")
+        self.energy_proj = LinearNorm(atttention_dim, 1 ,bias= False, w_init_gain="tanh")
 
         self.reset()
 
@@ -257,3 +257,68 @@ class LocationSensetiveAttention(nn.Module):
         attention_context = torch.bmm(attention_weights.unsqueeze(1), encoder_output).squeeze(1)
 
         return attention_context, attention_weights
+
+class PostNet(nn.Module):
+    """Take any generated MEL from LSTM and postprocess to allow for any missing details to be added """
+
+    def __init__(self,
+                 num_mels,
+                 postnet_num_convs = 5,
+                 postnet_n_filters = 512,
+                 postnet_kernel_size = 5,
+                 postnet_dropout_p = 0.5):
+        
+        super(PostNet, self).__init__()
+
+        self.convs = nn.ModuleList()
+
+        self.convs = nn.ModuleList()
+
+        self.convs.append(
+            nn.Sequential(
+                ConvNorm(num_mels,
+                         postnet_n_filters,
+                         kernel_size= postnet_kernel_size,
+                         padding = "same",
+                         w_init_gain= "tanh"),
+
+                nn.BatchNormld(postnet_n_filters),
+                nn.Tanh(),
+                nn.Dropout(postnet_dropout_p)
+            )
+        )
+
+        for _ in range (postnet_num_convs - 2):
+
+            self.convs.append(
+                nn.Sequential(
+                    ConvNorm(postnet_n_filters,
+                              postnet_n_filters,
+                              kernel_size = postnet_kernel_size,
+                              padding = "same",
+                              w_init_gain = "tanh"),
+
+                    nn.BatchNormld(postnet_n_filters),
+                    nn.Tanh(),
+                    nn.Dropout(postnet_dropout_p)
+                )
+            )
+
+        self.convs.append(
+            nn.Sequential(
+                ConvNorm(postnet_n_filters,
+                         num_mels,
+                         kernel_size = postnet_kernel_size,
+                         padding = "same"),
+
+                nn.BatchNormld(num_mels),
+                nn.Dropout(postnet_dropout_p)
+            )
+        )
+
+    def forward(self, x):
+        x = x.transpose(1,2)
+        for conv_block in self.convs:
+            x = conv_block(x)
+        x = x.transpose(1,2)
+        return x
