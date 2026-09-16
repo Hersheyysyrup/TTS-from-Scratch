@@ -411,3 +411,43 @@ def decode(self, mel_step):
     stop_out = self.stop_proj(next_pred_input)
 
     return mel_out, stop_out, attention_weights
+
+def forward(self, encoder_outputs, encoder_mask, mels, decoder_mask):
+
+    start_feature_vector = self._bos_frame(mels.shape[0].to(encoder_outputs.device))
+    mels_w_start = torch.cat([start_feature_vector, mels], dim =1 )
+
+    self._init_decoder(encoder_outputs, encoder_mask)
+
+    mel_outs, stop_tokens, encoder_weights = [], [], []
+
+    T_dec = mels.shape[1]
+
+    mel_proj = self.prenet(mels_w_start)
+
+    for t in range(T_dec):
+        if t == 0:
+            self.attention.reset()
+
+        step_input = mel_proj[: , t, :]
+
+        mel_out, stop_out, attention_weight = self.decode(step_input)
+
+        mel_outs.append(mel_out)
+        stop_tokens.append(stop_out)
+        attention_weights.append(attention_weight)
+
+    mel_outs = torch.stack(mel_outs, dim=1)
+    stop_tokens = torch.stack(stop_tokens, dim = 1).squeeze()
+    attention_weights = torch.stack(attention_weights, dim =1 )
+
+    mel_residual = self.postnet(mel_outs)
+
+    ###mask###
+    decoder_mask = decoder_mask.unsqueeze(-1).bool()
+    mel_outs = mel_outs.masked_fill(decoder_mask, 0.0)
+    mel_residual = mel_residual.masked_fill(decoder_mask, 0.0)
+    attention_weights = attention_weights.masked_fill(decoder_mask, 0.0)
+    stop_tokens = stop_tokens.masked_fill(decoder_mask.squeeze(), 1e3)
+
+    return mel_out, mel_residual, stop_tokens, attention_weights
