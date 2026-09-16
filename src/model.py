@@ -451,3 +451,41 @@ def forward(self, encoder_outputs, encoder_mask, mels, decoder_mask):
     stop_tokens = stop_tokens.masked_fill(decoder_mask.squeeze(), 1e3)
 
     return mel_out, mel_residual, stop_tokens, attention_weights
+
+@torch.inference_mode()
+def inference (self, encoder_output, max_decode_steps = 1000):
+
+    start_feature_vector = self._bos_frame(B=1).squeeze(0)
+
+    self._init_decoder(encoder_output, encoder_mask = None)
+
+    ### Create list to store intermediate outputs ###
+    mel_outs, stop_outs , attention_Weights = [], [], []
+
+    _input = start_feature_vector
+    self.attention.reset()
+
+    while True:
+        _input = self.prenet(_input)
+
+        mel_out, stop_out, attention_weight = self.decode(_input)
+
+        mel_outs.append(mel_out)
+        stop_outs.append(stop_out)
+        attention_weights.append(attention_weight)
+
+        if torch.sigmoid(stop_out) > 0.5:
+            break
+        elif len(mel_outs) >= max_decode_steps:
+            print("Reached max decoder steps")
+            break
+        _input = mel_out
+
+        mel_outs = torch.stack(mel_outs, dim=1)
+        stop_tokens = torch.stack(stop_tokens, dim = 1).squeeze()
+        attention_weights = torch.stack(attention_weights, dim =1 )
+    
+        mel_residual = self.postnet(mel_outs)
+
+        return mel_out, mel_residual, stop_tokens, attention_weights
+        
