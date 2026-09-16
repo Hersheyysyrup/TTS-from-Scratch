@@ -488,4 +488,43 @@ def inference (self, encoder_output, max_decode_steps = 1000):
         mel_residual = self.postnet(mel_outs)
 
         return mel_out, mel_residual, stop_tokens, attention_weights
-        
+
+
+class Tacotron2(nn.Module):
+    def __init__(self, config):
+        super(Tacotron2, self).__init__()
+
+        self.config = config
+
+        self.encoder = Encoder(config)
+        self.decoder = Decoder(config)
+
+    def forward(self, text, input_lengths, mels, encoder_mask, decoder_mask):
+
+        encoder_padded_outputs = self.encoder(text, input_lengths)
+        mel_outs , mel_residuals, stop_tokens, attention_weights = self.decoder(
+            encoder_padded_outputs, encoder_mask, mels, decoder_mask
+        )
+
+        mel_postnet_out = mel_outs + mel_residuals
+
+        return mel_outs, mel_postnet_out, stop_tokens, attention_weights
+
+    @torch.inference_mode()
+    def inference(self, text, max_decode_steps = 1000):
+
+        if text.ndim == 1:
+            text = text.unsqueeze(0)
+
+        assert text.shape[0] == 1, " Inference is only written for batch size of 1"
+        encoder_outputs = self.encoder(text)
+        mel_outs, mel_residual, stop_outs, attention_weights = self.decoder.inference(
+             encoder_outputs, max_decode_steps = max_decode_steps
+        )
+
+        mel_postnet_out = mel_outs + mel_residual
+
+        return mel_postnet_out, attention_weights
+
+
+            
