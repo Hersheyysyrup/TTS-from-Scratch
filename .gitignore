@@ -9,4 +9,8 @@ data/
 .vscode/
 
 .DS_Store
-Thumbs.db
+Thumbs.db.venv/
+venv/
+env/
+
+/.venv/

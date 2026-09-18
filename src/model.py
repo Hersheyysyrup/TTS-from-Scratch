@@ -417,7 +417,7 @@ class Decoder(nn.Module):
     
     def forward(self, encoder_outputs, encoder_mask, mels, decoder_mask):
     
-        start_feature_vector = self._bos_frame(mels.shape[0])
+        start_feature_vector = self._bos_frame(mels.shape[0]).to(mels.device)
         mels_w_start = torch.cat([start_feature_vector, mels], dim =1 )
     
         self._init_decoder(encoder_outputs, encoder_mask)

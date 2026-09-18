@@ -3,8 +3,8 @@ python train.py \
     --run_name tacotron2_testing \
     --working_directory work_dir \
     --save_audio_gen work_dir/save_gen \
-    --path_to_train_manifest ../data/LJSpeech-1.1/train_metadata.csv \
-    --path_to_val_manifest ../data/LJSpeech-1.1/test_metadata.csv \
+    --path_to_train_manifest ../data/train_metadata.csv \
+    --path_to_val_manifest ../data/test_metadata.csv \
     --training_epochs 50 \
     --console_out_iters 5 \
     --wandb_log_iters 5 \
