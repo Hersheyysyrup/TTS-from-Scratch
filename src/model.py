@@ -8,7 +8,7 @@ from dataclasses import dataclass
 class Tacotron2Config:
 
     ### Mel input features ####
-    num_mels = 80
+    num_mels: int= 80
 
     ### Character Embeddings ###
     character_embed_dim: int = 512
@@ -17,7 +17,7 @@ class Tacotron2Config:
 
     ## Encoder config ###
     encoder_kernel_size: int = 5
-    enocoder_n_convulations: int = 3
+    encoder_n_convolutions: int = 3
     encoder_embed_dim: int = 52
     encoder_dropout_p: float =0.5
 
@@ -79,7 +79,7 @@ class ConvNorm(nn.Module):
         if padding is None:
             padding = "same"
 
-        self.conv = nn.Convld( in_channels, out_channels, kernel_size= kernel_size,
+        self.conv = nn.Conv1d( in_channels, out_channels, kernel_size= kernel_size,
                               stride=stride, padding= padding, dilation = dilation,
                               bias = bias)
 
@@ -99,7 +99,7 @@ class Encoder(nn.Module):
         self. embeddings = nn.Embedding(config.num_chars, config.character_embed_dim, padding_idx=config.pad_token_id)
         self.convulations = nn.ModuleList()
 
-        for i in range(config.encoder_n_convulations):
+        for i in range(config.encoder_n_convolutions):
 
             self.convulations.append(
                 nn.Sequential(
@@ -114,9 +114,9 @@ class Encoder(nn.Module):
 
                     ),
 
-                    nn.BatchNormld(config.encoder_embed_dim),
+                    nn.BatchNorm1d(config.encoder_embed_dim),
                     nn.ReLU(),
-                    nn.Dropout(config.enocder_dropout_p)
+                    nn.Dropout(config.encoder_dropout_p)
                 )
             )
         self .lstm = nn.LSTM(
@@ -136,7 +136,7 @@ class Encoder(nn.Module):
         if input_lenghts is None:
             input_lenghts = torch.full((batch_size,), fill_value= seq_len, device = x.device)
 
-        for block in self.blocks:
+        for block in self.convulations:
             x = block(x)
 
         x = x.transpose(1,2)
@@ -162,30 +162,30 @@ class Prenet(nn.Module):
 
         self.layers = nn.ModuleList()
 
-        for in_dim, out_dim in zip(dims[:1], dims[1:]):
+        for in_dim, out_dim in zip(dims[:-1], dims[1:]):
             self.layers.append(
                             nn.Sequential(
                                 LinearNorm(in_features=in_dim,
                                            out_features=out_dim,
                                            bias = False,
                                            w_init_gain = "relu"),
-                                nn.Relu()
+                                nn.ReLU()
                             )
             )
             
-def forward(self, x):
-    for layer in self.layers:
-
-        x = F.dropout(layer(x), p = self.dropout_p, training=True)
-
-    return x
+    def forward(self, x):
+        for layer in self.layers:
+    
+            x = F.dropout(layer(x), p = self.dropout_p, training=True)
+    
+        return x
 
 class LocationLayer(nn.Module):
     def __init__(self,
                  attention_n_filters,
                  attention_kernel_size,
                  attention_dim,):
-        super(LocationLayer, self).__init___()
+        super(LocationLayer, self).__init__()
 
         self.conv = ConvNorm(
             in_channels=2,
@@ -205,8 +205,8 @@ class LocationLayer(nn.Module):
         return attention_weights
 
 class LocalSensitiveAttention(nn.Module):
-    def __init___(self,
-                  atttention_dim,
+    def __init__(self,
+                  attention_dim,
                   decoder_hidden_size,
                   encoder_hidden_size,
                   attention_n_filters,
@@ -214,18 +214,21 @@ class LocalSensitiveAttention(nn.Module):
 
         super(LocalSensitiveAttention, self).__init__()
 
-        self.in_proj = LinearNorm(decoder_hidden_size, atttention_dim, bias= True, w_init_gain= "tanh")
-        self.enc_proj = LinearNorm(encoder_hidden_size, atttention_dim, bias = True, w_init_gain="tanh")    
+        self.in_proj = LinearNorm(decoder_hidden_size, attention_dim, bias= True, w_init_gain= "tanh")
+        self.enc_proj = LinearNorm(encoder_hidden_size, attention_dim, bias = True, w_init_gain="tanh")    
 
         self.what_have_i_said = LocationLayer(
             attention_n_filters,
             attention_kernel_size,
-            atttention_dim,
+            attention_dim,
         )   
 
-        self.energy_proj = LinearNorm(atttention_dim, 1 ,bias= False, w_init_gain="tanh")
+        self.energy_proj = LinearNorm(attention_dim, 1 ,bias= False, w_init_gain="tanh")
 
         self.reset()
+
+    def reset(self):
+        self.enc_proj_cache = None
 
     def calculate_allignment_energies(self,
                                       mel_input,
@@ -282,7 +285,7 @@ class PostNet(nn.Module):
                          padding = "same",
                          w_init_gain= "tanh"),
 
-                nn.BatchNormld(postnet_n_filters),
+                nn.BatchNorm1d(postnet_n_filters),
                 nn.Tanh(),
                 nn.Dropout(postnet_dropout_p)
             )
@@ -298,7 +301,7 @@ class PostNet(nn.Module):
                               padding = "same",
                               w_init_gain = "tanh"),
 
-                    nn.BatchNormld(postnet_n_filters),
+                    nn.BatchNorm1d(postnet_n_filters),
                     nn.Tanh(),
                     nn.Dropout(postnet_dropout_p)
                 )
@@ -311,7 +314,7 @@ class PostNet(nn.Module):
                          kernel_size = postnet_kernel_size,
                          padding = "same"),
 
-                nn.BatchNormld(num_mels),
+                nn.BatchNorm1d(num_mels),
                 nn.Dropout(postnet_dropout_p)
             )
         )
@@ -335,13 +338,13 @@ class Decoder(nn.Module):
 
         self.rnn = nn.ModuleList(
             [
-                nn.LSTMCell (config.decoder_prent_dim + config.encoder_embed_dim, config.decoder_embed_dim),
+                nn.LSTMCell (config.decoder_prenet_dim + config.encoder_embed_dim, config.decoder_embed_dim),
                 nn.LSTMCell(config.decoder_embed_dim + config.encoder_embed_dim, config.decoder_embed_dim)
             ]
         )
 
         self.attention = LocalSensitiveAttention(attention_dim = config.attention_dim,
-                                                 decoder_hiddden_size = config.decoder_embed_dim,
+                                                 decoder_hidden_size = config.decoder_embed_dim,
                                                  encoder_hidden_size = config.encoder_embed_dim,
                                                  attention_n_filters = config.attention_location_n_filters,
                                                  attention_kernel_size = config.attention_location_kernel_size)
@@ -354,142 +357,142 @@ class Decoder(nn.Module):
             postnet_num_convs= config.decoder_postnet_num_convs,
             postnet_n_filters = config.decoder_postnet_n_filters,
             postnet_kernel_size= config.decoder_postnet_kernel_size,
-            postnet_dropout_p= config.decoder_postnet_drop_out_p
+            postnet_dropout_p= config.decoder_postnet_dropout_p
         )
 
-def __init__decoder(self, encoder_outputs, encoder_mask = None):
-
-    B, S, E = encoder_outputs.shape
-    device = encoder_outputs.device
-
-    self.h = [torch.zeros(B, self.config.decoder_embed_dim, device = device ) for _ in range(2)]
-    self.c = [torch.zeros(B, self.config.decoder_embed_dim, device = device) for _ in range(2)]
-
-    self.cumulative_attn_weight = torch.zeros(B,S, device=device)
-    self.attn_weight = torch.zeros(B,S, device = device)
-    self.attn_context = torch.zeros(B, self.config.encoder_embed_dim, device = device)
-
-    self.encoder_outputs = encoder_outputs
-    self.encoder_mask = encoder_mask
-
-def _bos_frame(self, B):
-    start_frame_zeros = torch.zeros(B, 1 , self.config.num_mels)
-    return start_frame_zeros
-def decode(self, mel_step):
-
-    rnn_input = torch.cat([mel_step, self.attn_context], dim = -1)
-
-    self.h[0], self.c[0] = self.rnn[0](rnn_input, (self.h[0], self.c[0]))
-
-    attn_hidden = F.dropout(self.h[0], self.config.attention_dropout_p, self.training)
-
-    attn_weights_cat = torch.cat(
-        [
-            #BX2XS
-            self.attn_weight.unsqueeze(1), self.cumulative_attn_weight.unsqueeze(1)
-        ], dim = 1
-    )
-
-    attention_context , attention_weights = self.attention(
-        attn_hidden,
-        self.encoder_outputs,
-        attn_weights_cat,
-        mask = self.ecoder_mask
-    )
-
-    self.attn_weight = attention_weights #BXS
-    self.cumulative_attn_weight = self.cumulative_attn_weight +attention_weights
-    self.atten_context = attention_context
-
-    decoder_input = torch.cat([attn_hidden, self.attn_context], dim = -1)
-    self.h[1], self.c[1] = self.rnn [1] (decoder_input, (self.h[1], self.c[1]))
-    decoder_hidden = F.dropout(self.h[1], self.config.decoder_dropout_p, self.training)
-
-    next_pred_input = torch.cat([decoder_hidden, self.attn_context], dim = -1)
-
-    mel_out = self.mel_proj(next_pred_input)
-    stop_out = self.stop_proj(next_pred_input)
-
-    return mel_out, stop_out, attention_weights
-
-def forward(self, encoder_outputs, encoder_mask, mels, decoder_mask):
-
-    start_feature_vector = self._bos_frame(mels.shape[0].to(encoder_outputs.device))
-    mels_w_start = torch.cat([start_feature_vector, mels], dim =1 )
-
-    self._init_decoder(encoder_outputs, encoder_mask)
-
-    mel_outs, stop_tokens, encoder_weights = [], [], []
-
-    T_dec = mels.shape[1]
-
-    mel_proj = self.prenet(mels_w_start)
-
-    for t in range(T_dec):
-        if t == 0:
-            self.attention.reset()
-
-        step_input = mel_proj[: , t, :]
-
-        mel_out, stop_out, attention_weight = self.decode(step_input)
-
-        mel_outs.append(mel_out)
-        stop_tokens.append(stop_out)
-        attention_weights.append(attention_weight)
-
-    mel_outs = torch.stack(mel_outs, dim=1)
-    stop_tokens = torch.stack(stop_tokens, dim = 1).squeeze()
-    attention_weights = torch.stack(attention_weights, dim =1 )
-
-    mel_residual = self.postnet(mel_outs)
-
-    ###mask###
-    decoder_mask = decoder_mask.unsqueeze(-1).bool()
-    mel_outs = mel_outs.masked_fill(decoder_mask, 0.0)
-    mel_residual = mel_residual.masked_fill(decoder_mask, 0.0)
-    attention_weights = attention_weights.masked_fill(decoder_mask, 0.0)
-    stop_tokens = stop_tokens.masked_fill(decoder_mask.squeeze(), 1e3)
-
-    return mel_out, mel_residual, stop_tokens, attention_weights
-
-@torch.inference_mode()
-def inference (self, encoder_output, max_decode_steps = 1000):
-
-    start_feature_vector = self._bos_frame(B=1).squeeze(0)
-
-    self._init_decoder(encoder_output, encoder_mask = None)
-
-    ### Create list to store intermediate outputs ###
-    mel_outs, stop_outs , attention_Weights = [], [], []
-
-    _input = start_feature_vector
-    self.attention.reset()
-
-    while True:
-        _input = self.prenet(_input)
-
-        mel_out, stop_out, attention_weight = self.decode(_input)
-
-        mel_outs.append(mel_out)
-        stop_outs.append(stop_out)
-        attention_weights.append(attention_weight)
-
-        if torch.sigmoid(stop_out) > 0.5:
-            break
-        elif len(mel_outs) >= max_decode_steps:
-            print("Reached max decoder steps")
-            break
-        _input = mel_out
-
+    def _init_decoder(self, encoder_outputs, encoder_mask = None):
+    
+        B, S, E = encoder_outputs.shape
+        device = encoder_outputs.device
+    
+        self.h = [torch.zeros(B, self.config.decoder_embed_dim, device = device ) for _ in range(2)]
+        self.c = [torch.zeros(B, self.config.decoder_embed_dim, device = device) for _ in range(2)]
+    
+        self.cumulative_attn_weight = torch.zeros(B,S, device=device)
+        self.attn_weight = torch.zeros(B,S, device = device)
+        self.attn_context = torch.zeros(B, self.config.encoder_embed_dim, device = device)
+    
+        self.encoder_outputs = encoder_outputs
+        self.encoder_mask = encoder_mask
+    
+    def _bos_frame(self, B):
+        start_frame_zeros = torch.zeros(B, 1 , self.config.num_mels)
+        return start_frame_zeros
+    def decode(self, mel_step):
+    
+        rnn_input = torch.cat([mel_step, self.attn_context], dim = -1)
+    
+        self.h[0], self.c[0] = self.rnn[0](rnn_input, (self.h[0], self.c[0]))
+    
+        attn_hidden = F.dropout(self.h[0], self.config.attention_dropout_p, self.training)
+    
+        attn_weights_cat = torch.cat(
+            [
+                #BX2XS
+                self.attn_weight.unsqueeze(1), self.cumulative_attn_weight.unsqueeze(1)
+            ], dim = 1
+        )
+    
+        attention_context , attention_weights = self.attention(
+            attn_hidden,
+            self.encoder_outputs,
+            attn_weights_cat,
+            mask = self.encoder_mask
+        )
+    
+        self.attn_weight = attention_weights #BXS
+        self.cumulative_attn_weight = self.cumulative_attn_weight +attention_weights
+        self.attn_context = attention_context
+    
+        decoder_input = torch.cat([attn_hidden, self.attn_context], dim = -1)
+        self.h[1], self.c[1] = self.rnn [1] (decoder_input, (self.h[1], self.c[1]))
+        decoder_hidden = F.dropout(self.h[1], self.config.decoder_dropout_p, self.training)
+    
+        next_pred_input = torch.cat([decoder_hidden, self.attn_context], dim = -1)
+    
+        mel_out = self.mel_proj(next_pred_input)
+        stop_out = self.stop_proj(next_pred_input)
+    
+        return mel_out, stop_out, attention_weights
+    
+    def forward(self, encoder_outputs, encoder_mask, mels, decoder_mask):
+    
+        start_feature_vector = self._bos_frame(mels.shape[0])
+        mels_w_start = torch.cat([start_feature_vector, mels], dim =1 )
+    
+        self._init_decoder(encoder_outputs, encoder_mask)
+    
+        mel_outs, stop_tokens, attention_weights = [], [], []
+    
+        T_dec = mels.shape[1]
+    
+        mel_proj = self.prenet(mels_w_start)
+    
+        for t in range(T_dec):
+            if t == 0:
+                self.attention.reset()
+    
+            step_input = mel_proj[: , t, :]
+    
+            mel_out, stop_out, attention_weight = self.decode(step_input)
+    
+            mel_outs.append(mel_out)
+            stop_tokens.append(stop_out)
+            attention_weights.append(attention_weight)
+    
         mel_outs = torch.stack(mel_outs, dim=1)
         stop_tokens = torch.stack(stop_tokens, dim = 1).squeeze()
         attention_weights = torch.stack(attention_weights, dim =1 )
     
         mel_residual = self.postnet(mel_outs)
-
-        return mel_out, mel_residual, stop_tokens, attention_weights
-
-
+    
+        ###mask###
+        decoder_mask = decoder_mask.unsqueeze(-1).bool()
+        mel_outs = mel_outs.masked_fill(decoder_mask, 0.0)
+        mel_residual = mel_residual.masked_fill(decoder_mask, 0.0)
+        attention_weights = attention_weights.masked_fill(decoder_mask, 0.0)
+        stop_tokens = stop_tokens.masked_fill(decoder_mask.squeeze(), 1e3)
+    
+        return mel_outs, mel_residual, stop_tokens, attention_weights
+    
+    @torch.inference_mode()
+    def inference (self, encoder_output, max_decode_steps = 1000):
+    
+        start_feature_vector = self._bos_frame(B=1).squeeze(0)
+    
+        self._init_decoder(encoder_output, encoder_mask = None)
+    
+        ### Create list to store intermediate outputs ###
+        mel_outs, stop_outs , attention_Weights = [], [], []
+    
+        _input = start_feature_vector
+        self.attention.reset()
+    
+        while True:
+            _input = self.prenet(_input)
+    
+            mel_out, stop_out, attention_weight = self.decode(_input)
+    
+            mel_outs.append(mel_out)
+            stop_outs.append(stop_out)
+            attention_weights.append(attention_weight)
+    
+            if torch.sigmoid(stop_out) > 0.5:
+                break
+            elif len(mel_outs) >= max_decode_steps:
+                print("Reached max decoder steps")
+                break
+            _input = mel_out
+    
+            mel_outs = torch.stack(mel_outs, dim=1)
+            stop_tokens = torch.stack(stop_tokens, dim = 1).squeeze()
+            attention_weights = torch.stack(attention_weights, dim =1 )
+        
+            mel_residual = self.postnet(mel_outs)
+    
+            return mel_outs, mel_residual, stop_tokens, attention_weights
+    
+    
 class Tacotron2(nn.Module):
     def __init__(self, config):
         super(Tacotron2, self).__init__()

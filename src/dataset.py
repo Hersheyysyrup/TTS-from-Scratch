@@ -3,7 +3,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset
 import librosa
-from tokenizer import tokenizer
+from tokenizer import Tokenizer
 import matplotlib.pyplot as plt
 import numpy as np
 import warnings
@@ -53,6 +53,7 @@ class AudioMelConversions:
                  sampling_rate = 22050,
                  n_fft = 1024,
                  window_size = 256,
+                 hop_size = 256,
                  fmin = 0,
                  fmax = 11025,
                  center = False,
@@ -63,6 +64,7 @@ class AudioMelConversions:
         self.sampling_rate = sampling_rate
         self.n_fft = n_fft
         self.window_size = window_size
+        self.hop_size = hop_size
         self.fmin = fmin
         self.fmax = fmax
         self.center = center
@@ -70,7 +72,7 @@ class AudioMelConversions:
         self.max_scaled_abs = max_scaled_abs
 
         self.spec2mel = self.__get__spec2mel_proj()
-        self.mel2spec = torch.linalg.pinv(self,self.spec2mel)
+        self.mel2spec = torch.linalg.pinv(self.spec2mel)
 
     def __get__spec2mel_proj(self):
         mel = librosa.filters.mel( sr = self.sampling_rate,
@@ -88,7 +90,7 @@ class AudioMelConversions:
 
         spectrogram = torch.stft(audio_,
                                n_fft = self.n_fft,
-                               hop_length = self.window_size,
+                               hop_length = self.hop_size,
                                win_length = self.window_size,
                                window = torch.hann_window(self.window_size),
                                center = self.center,
@@ -114,7 +116,7 @@ class AudioMelConversions:
 
         mel = db_to_amp(mel)
 
-        spectrogram = torch.matmmul(self.mel2spec.to(mel.device), mel).cpu().numpy()
+        spectrogram = torch.matmul(self.mel2spec.to(mel.device), mel).cpu().numpy()
 
         audio = librosa.griffinlim(S = spectrogram,
                                    n_iter = griffin_lim_iter,
@@ -127,13 +129,13 @@ class AudioMelConversions:
         audio = audio.astype(np.int16)
         return audio
 
-    class TTSDataset(Dataset):
+class TTSDataset(Dataset):
         def __init__(self,
                      path_to_metadata,
                      sample_rate = 22050,
                      n_fft = 1024,
                      window_size = 256,
-                     hop_size = 256,
+                 hop_size = 256,
                      fmin = 0,
                      fmax = 8000,
                      num_mels = 80,
@@ -155,7 +157,7 @@ class AudioMelConversions:
             self.min_db = min_db
             self.max_scaled_abs = max_scaled_abs
 
-            self.transcript_length = [len(tokenizer().encode(t)) for t in self.metadata["normalized_transcript"]]
+            self.transcript_length = [len(Tokenizer().encode(t)) for t in self.metadata["normalized_transcript"]]
             self.audio_proc = AudioMelConversions(num_mels = self.num_mels,
                                                   sampling_rate = self.sample_rate,
                                                   n_fft= self.n_fft,
@@ -167,20 +169,20 @@ class AudioMelConversions:
                                                   min_db= self.min_db,
                                                   max_scaled_abs= self.max_scaled_abs)
 
-            def __len__(self):
-                return len(self.metadat)
+        def __len__(self):
+            return len(self.metadata)
 
-            def __getitem__(self, idx):
+        def __getitem__(self, idx):
 
-                sample = self.metadata.iloc[idx]
+            sample = self.metadata.iloc[idx]
 
-                path_to_audio = sample["file_path"]
-                transcript = sample["normalized_transcript"]
+            path_to_audio = sample["file_path"]
+            transcript = sample["normalized_transcript"]
 
-                audio = load_wav(path_to_audio, sr = self.sample_rate)
-                mel = self.audio_proc.audio2mel(audio, do_norm = True)
+            audio = load_wav(path_to_audio, sr = self.sample_rate)
+            mel = self.audio_proc.audio2mel(audio, do_norm = True)
 
-                return transcript, mel.squeeze(0)
+            return transcript, mel.squeeze(0)
 
 def build_padding_mask(lengths):
 
@@ -208,51 +210,52 @@ def TTSCollator():
         mels = [mels[i] for i in sorted_idx]
         output_lengths = output_lengths[sorted_idx]
 
-        text_padded = torch.nn.utils.rnn.pad_Sequence(texts, batch_first = True, padding_value = tokenizer.pad_token_id)
+        text_padded = torch.nn.utils.rnn.pad_sequence(texts, batch_first = True, padding_value = tokenizer.pad_token_id)
 
 
         max_target_len = max(output_lengths).item()
         num_mels = mels[0].shape[0]
 
-        mel_padded = torch.zero((len(mels), num_mels, max_target_len))
-        gate_padded = torch.zero((len(mels), max_target_len))
+        mel_padded = torch.zeros((len(mels), num_mels, max_target_len))
+        gate_padded = torch.zeros((len(mels), max_target_len))
 
-        for i in mel in enumerate(mels):
-            t = mels.shape[1]
+        for i, mel in enumerate(mels):
+            t = mel.shape[1]
             mel_padded [i, :, :t] = mel
             gate_padded [i, t-1:] = 1  #does padding with 1 instead of 0
 
         mel_padded = mel_padded.transpose(1,2)
 
-        return(text_padded,input_lengths, mel_padded, gate_padded), build_padding_mask(input_lengths), build_padding_mask(output_lengths)
+        return text_padded, input_lengths, mel_padded, gate_padded, build_padding_mask(input_lengths), build_padding_mask(output_lengths)
+
+    return _collate_fn
 
 
 class BatchSampler:
     def __init__(self, dataset, batch_size, drop_last = False):
 
-        self.sample = torch.utils.data.SequentialSampler(dataset)
+        self.sampler = torch.utils.data.SequentialSampler(dataset)
         self.batch_size = batch_size
-        self_drop_last = drop_last
+        self.drop_last = drop_last
         self.random_batches = self.make_batches()
 
-        def _make_batches(self):
-            indices = [i for i in self.sampler]
+    def make_batches(self):
+        indices = [i for i in self.sampler]
 
-            if self.drop_last:
-                total_size = (len(indices) // self.batch_size) * self.batch_size
-                indices = indices[:total_size]
+        if self.drop_last:
+            total_size = (len(indices) // self.batch_size) * self.batch_size
+            indices = indices[:total_size]
 
-            batches = [indices[i:i+self.batch_size] for i in range (0, len(indices), self.batch_size)]
-            random_indices = torch.randperm(len(batches))
-            return [batches[i] for i in random_indices]
+        batches = [indices[i:i+self.batch_size] for i in range (0, len(indices), self.batch_size)]
+        random_indices = torch.randperm(len(batches))
+        return [batches[i] for i in random_indices]
 
-        def __iter__(self):
-            for batch in self.random_batches:
-                yield batch
+    def __iter__(self):
+        for batch in self.random_batches:
+            yield batch
 
-        def __len__(self):
-            return len(self.random_batches)
-
+    def __len__(self):
+        return len(self.random_batches)
 if __name__ == "__main__":
     path_to_audio = r"D:\TTS\data\LJSpeech-1.1\wavs\LJ034-0199.wav"
     audio = load_wav(path_to_audio)

@@ -15,14 +15,14 @@ class Tokenizer:
 
         self.eos_token_id = self.char2id[self.eos_token]
         self.pad_token_id = self.char2id[self.pad_token]
-        self.unk_token_id = self.char2if[self.unk_token]
+        self.unk_token_id = self.char2id[self.unk_token]
         self.vocab_size = len(self.chars)
 
     def encode(self, text, return_tensor = True):
         token = [self.char2id.get(char, self.unk_token_id) for char in text] + [self.eos_token_id]
 
         if return_tensor:
-            tokens = torch.tensor(tokens, dtype =torch.long)
+            tokens = torch.tensor(token, dtype =torch.long)
 
             return tokens
 

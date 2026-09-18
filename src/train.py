@@ -102,12 +102,10 @@ tokenizer = Tokenizer()
 
 ### LOAD MODEL ###
 config = Tacotron2Config(
-    num_mels=args.num_mels,
     num_chars=tokenizer.vocab_size,
     character_embed_dim=args.character_embed_dim,
     pad_token_id=tokenizer.pad_token_id,
     encoder_kernel_size=args.encoder_kernel_size,
-    encoder_n_convolutions=args.encoder_n_convolutions,
     encoder_embed_dim=args.encoder_embed_dim,
     encoder_dropout_p=args.encoder_dropout_p,
     decoder_embed_dim=args.decoder_rnn_embed_dim,
@@ -136,7 +134,7 @@ optimizer = torch.optim.Adam(model.parameters(),
 
 ### Load Dataset ###
 trainset = TTSDataset(args.path_to_train_manifest,
-                      sample_rate = args.sample_rate,
+                      sample_rate = args.sampling_rate,
                       n_fft = args.n_fft,
                       window_size = args.window_size,
                       hop_size = args.hop_size,
@@ -147,7 +145,7 @@ trainset = TTSDataset(args.path_to_train_manifest,
                       max_scaled_abs = args.max_scaled_abs)
 
 testset = TTSDataset(args.path_to_val_manifest,
-                    sample_rate = args.sample_rate,
+                    sample_rate = args.sampling_rate,
                     n_fft = args.n_fft,
                     window_size = args.window_size,
                     hop_size = args.hop_size,
@@ -216,4 +214,167 @@ else:
     if using_scheduler:
         scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
 
+for epoch in range(completed_epochs, args.training_epochs):
+
+    accelerator.print(f"Epoch: {epoch}")
+
+    model.train()
+
+    for texts, text_lens, mels, stops, encoder_mask, decoder_mask in train_loader:
+
+        texts = texts.to(accelerator.device)
+        mels = mels.to(accelerator.device)
+        stops = stops.to(accelerator.device)
+        encoder_mask = encoder_mask.to(accelerator.device)
+        decoder_mask = decoder_mask.to(accelerator.device)
+
+        mels_out, mels_postnet_out, stop_preds, _ = model(
+            texts, text_lens.to("cpu"), mels, encoder_mask, decoder_mask
+        )
+
+    mel_loss = F.mse_loss(mels_out, mels)
+    refined_mels_loss = F.mse_loss(mels_postnet_out, mels)
+    stop_loss = F.binary_cross_entropy_with_logits(stop_preds.reshape(-1,1), stops.reshape(-1,1))
+
+    loss = mel_loss + refined_mels_loss +stop_loss
+
+    accelerator.backward(loss)
+    accelerator.clip_grad_norm_(model.parameters(), max_norm= 1.0)
+    optimizer.step()
+    optimizer.zero_grad()
+
+     ### Grab Metrics from all GPUs for Logging ###
+
+    loss = torch.mean(accelerator.gather_for_metrics(loss)).item()
+    mel_loss = torch.mean(accelerator.gather_for_metrics(mel_loss)).item()
+    refined_mel_loss = torch.mean(accelerator.gather_for_metrics(refined_mel_loss)).item()
+    stop_loss = torch.mean(accelerator.gather_for_metrics(stop_loss)).item()
+
+    if completed_steps % args.console_out_iters == 0:
+            accelerator.print("Completed Steps {}/{} | Loss {:.4f} | Mel Loss {:.4f} | RMel Loss {:.4f} | Stop Loss {:.4f}".format(
+                completed_steps, 
+                args.training_epochs * len(train_loader), 
+                loss, 
+                mel_loss, 
+                refined_mel_loss, 
+                stop_loss
+            ))
+       
+    if completed_steps % args.wandb_log_iters == 0:
+            
+        if args.log_wandb:
+                accelerator.log(
+                    {
+                        "mel_loss": mel_loss, 
+                        "refined_mel_loss": refined_mel_loss, 
+                        "stop_loss": stop_loss,
+                        "total_loss": loss
+                    }, 
+                    step=completed_steps
+                )
+     
+        completed_steps +=1 
+
+    accelerator.wait_for_everyone()
+
+### Model Evalutation  ###
+
+    model.eval()
+    accelerator.print("--VALIDATION--")
+    val_mel_loss, val_rmel_loss, val_stop_loss, num_losses = 0, 0, 0, 0
+    save_first = True
+    for texts, text_lens, mels, stops, encoder_mask, decoder_mask in test_loader:
         
+        texts = texts.to(accelerator.device)
+        mels = mels.to(accelerator.device)
+        stops = stops.to(accelerator.device)
+        encoder_mask = encoder_mask.to(accelerator.device)
+        decoder_mask = decoder_mask.to(accelerator.device)
+
+        
+        with torch.no_grad():
+            mels_out, mels_postnet_out, stop_preds, attention_weights = model(
+                texts, text_lens.to("cpu"), mels, encoder_mask, decoder_mask
+            )
+
+        mel_loss = F.mse_loss(mels_out, mels)
+        refined_mel_loss = F.mse_loss(mels_postnet_out, mels)
+        stop_loss = F.binary_cross_entropy_with_logits(stop_preds.reshape(-1,1), stops.reshape(-1,1))
+
+        val_mel_loss += mel_loss
+        val_rmel_loss += refined_mel_loss
+        val_stop_loss += stop_loss
+        num_losses += 1
+
+        if accelerator.is_main_process:
+            if save_first:
+
+                true_mel = denormalize(mels[0].T.to("cpu"))
+                pred_mel = denormalize(mels_postnet_out[0].T.to("cpu"))
+                attention = attention_weights[0].T.to("cpu")
+
+                fig, axes = plt.subplots(3, 1, figsize=(8, 12))
+                
+                im0 = axes[0].imshow(true_mel, aspect='auto', origin='lower', interpolation='none')
+                axes[0].set_title("True Mel")
+                axes[0].set_ylabel("Mel bins")
+                fig.colorbar(im0, ax=axes[0])
+
+                im1 = axes[1].imshow(pred_mel, aspect='auto', origin='lower', interpolation='none')
+                axes[1].set_title("Predicted Mel")
+                axes[1].set_ylabel("Mel bins")
+                fig.colorbar(im1, ax=axes[1])
+
+                im2 = axes[2].imshow(attention, aspect='auto', origin='lower', interpolation='none')
+                axes[2].set_title("Alignment")
+                axes[2].set_ylabel("Character Index")
+                axes[2].set_xlabel("Decoder Mel Timesteps")
+                fig.colorbar(im2, ax=axes[2])
+
+                plt.tight_layout()
+
+                plt.savefig(os.path.join(args.save_audio_gen, f"epoch_{epoch}_result.png"))
+
+                plt.close()
+        
+        save_first = False
+    
+    val_mel_loss = torch.mean(accelerator.gather_for_metrics(val_mel_loss)).item() / num_losses
+    val_rmel_loss = torch.mean(accelerator.gather_for_metrics(val_rmel_loss)).item() / num_losses
+    val_stop_loss = torch.mean(accelerator.gather_for_metrics(val_stop_loss)).item() / num_losses
+    val_loss = val_mel_loss + val_rmel_loss + val_stop_loss
+    
+    accelerator.print("Loss {:.4f} | Mel Loss {:.4f} | RMel Loss {:.4f} | Stop Loss {:.4f}".format(
+                val_loss, 
+                val_mel_loss, 
+                val_rmel_loss, 
+                val_stop_loss
+            ))
+    
+    
+    if args.log_wandb:
+        
+        accelerator.log(
+                    {
+                        "val_mel_loss": val_mel_loss, 
+                        "val_refined_mel_loss": val_rmel_loss, 
+                        "val_stop_loss": val_stop_loss,
+                        "val_total_loss": val_loss
+                    }, 
+                    step=completed_steps
+        )
+    
+    if completed_epochs % args.checkpoint_epochs == 0:
+        accelerator.print("Saving Checkpoint!")
+        path_to_checkpoint = os.path.join(path_to_experiment, f"checkpoint_{completed_epochs}")
+        accelerator.save_state(output_dir=path_to_checkpoint, safe_serialization=False)
+    
+    completed_epochs += 1
+
+    if using_scheduler:
+        scheduler.step(epoch=completed_epochs)
+        accelerator.print(f"Learning Rate: {scheduler.get_last_lr()[0]}")
+
+accelerator.save_state(os.path.join(path_to_experiment, "final_checkpoint"), safe_serialization=False)
+
+accelerator.end_training()
