@@ -1,3 +1,4 @@
+export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
 python train.py \
     --experiment_name tacotron2 \
     --run_name tacotron2_testing \
@@ -8,8 +9,8 @@ python train.py \
     --training_epochs 50 \
     --console_out_iters 5 \
     --wandb_log_iters 5 \
-    --checkpoint_epochs 25 \
-    --batch_size 32 \
+    --checkpoint_epochs 5 \
+    --batch_size 8 \
     --learning_rate 0.001 \
     --weight_decay "1e-6" \
     --adam_eps "1e-6" \

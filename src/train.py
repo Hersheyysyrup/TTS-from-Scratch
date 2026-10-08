@@ -83,8 +83,12 @@ if args.seed is not None:
 
 ###Init Accelerator ###
 path_to_experiment = os.path.join(args.working_directory, args.experiment_name)
-accelerator = Accelerator (project_dir = path_to_experiment,
-                           log_with = "wandb" if args.log_wandb else None)
+
+accelerator = Accelerator(
+    project_dir=path_to_experiment,
+    log_with="wandb" if args.log_wandb else None,
+    mixed_precision="fp16"
+)
 
 if args.log_wandb:
     accelerator.init_trackers(
@@ -166,7 +170,7 @@ train_loader = DataLoader(trainset,
                           num_workers= args.num_workers,
                           collate_fn = collator)
 
-test_loader = DataLoader(trainset,
+test_loader = DataLoader(testset,
                          batch_size = args.batch_size,
                          num_workers= args.num_workers,
                          collate_fn= collator)
@@ -232,50 +236,58 @@ for epoch in range(completed_epochs, args.training_epochs):
             texts, text_lens.to("cpu"), mels, encoder_mask, decoder_mask
         )
 
-    mel_loss = F.mse_loss(mels_out, mels)
-    refined_mels_loss = F.mse_loss(mels_postnet_out, mels)
-    stop_loss = F.binary_cross_entropy_with_logits(stop_preds.reshape(-1,1), stops.reshape(-1,1))
+        mel_loss = F.mse_loss(mels_out, mels)
+        refined_mels_loss = F.mse_loss(mels_postnet_out, mels)
+        stop_loss = F.binary_cross_entropy_with_logits(
+            stop_preds.reshape(-1, 1),
+            stops.reshape(-1, 1)
+        )
 
-    loss = mel_loss + refined_mels_loss +stop_loss
+        loss = mel_loss + refined_mels_loss + stop_loss
 
-    accelerator.backward(loss)
-    accelerator.clip_grad_norm_(model.parameters(), max_norm= 1.0)
-    optimizer.step()
-    optimizer.zero_grad()
+        accelerator.backward(loss)
+        accelerator.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        optimizer.step()
+        optimizer.zero_grad()
 
-     ### Grab Metrics from all GPUs for Logging ###
+        ### Grab Metrics from all GPUs for Logging ###
 
-    loss = torch.mean(accelerator.gather_for_metrics(loss)).item()
-    mel_loss = torch.mean(accelerator.gather_for_metrics(mel_loss)).item()
-    refined_mel_loss = torch.mean(accelerator.gather_for_metrics(refined_mel_loss)).item()
-    stop_loss = torch.mean(accelerator.gather_for_metrics(stop_loss)).item()
+        loss = torch.mean(accelerator.gather_for_metrics(loss)).item()
+        mel_loss = torch.mean(accelerator.gather_for_metrics(mel_loss)).item()
+        refined_mels_loss = torch.mean(
+            accelerator.gather_for_metrics(refined_mels_loss)
+        ).item()
+        stop_loss = torch.mean(
+            accelerator.gather_for_metrics(stop_loss)
+        ).item()
 
-    if completed_steps % args.console_out_iters == 0:
-            accelerator.print("Completed Steps {}/{} | Loss {:.4f} | Mel Loss {:.4f} | RMel Loss {:.4f} | Stop Loss {:.4f}".format(
-                completed_steps, 
-                args.training_epochs * len(train_loader), 
-                loss, 
-                mel_loss, 
-                refined_mel_loss, 
-                stop_loss
-            ))
-       
-    if completed_steps % args.wandb_log_iters == 0:
-            
-        if args.log_wandb:
+        if completed_steps % args.console_out_iters == 0:
+            accelerator.print(
+                "Completed Steps {}/{} | Loss {:.4f} | Mel Loss {:.4f} | RMel Loss {:.4f} | Stop Loss {:.4f}".format(
+                    completed_steps,
+                    args.training_epochs * len(train_loader),
+                    loss,
+                    mel_loss,
+                    refined_mels_loss,
+                    stop_loss
+                )
+            )
+
+        if completed_steps % args.wandb_log_iters == 0:
+            if args.log_wandb:
                 accelerator.log(
                     {
-                        "mel_loss": mel_loss, 
-                        "refined_mel_loss": refined_mel_loss, 
+                        "mel_loss": mel_loss,
+                        "refined_mels_loss": refined_mels_loss,
                         "stop_loss": stop_loss,
                         "total_loss": loss
-                    }, 
+                    },
                     step=completed_steps
                 )
-     
-        completed_steps +=1 
 
-    accelerator.wait_for_everyone()
+        completed_steps += 1
+
+        accelerator.wait_for_everyone()
 
 ### Model Evalutation  ###
 
@@ -298,11 +310,11 @@ for epoch in range(completed_epochs, args.training_epochs):
             )
 
         mel_loss = F.mse_loss(mels_out, mels)
-        refined_mel_loss = F.mse_loss(mels_postnet_out, mels)
+        refined_mels_loss = F.mse_loss(mels_postnet_out, mels)
         stop_loss = F.binary_cross_entropy_with_logits(stop_preds.reshape(-1,1), stops.reshape(-1,1))
 
         val_mel_loss += mel_loss
-        val_rmel_loss += refined_mel_loss
+        val_rmel_loss += refined_mels_loss
         val_stop_loss += stop_loss
         num_losses += 1
 
@@ -357,7 +369,7 @@ for epoch in range(completed_epochs, args.training_epochs):
         accelerator.log(
                     {
                         "val_mel_loss": val_mel_loss, 
-                        "val_refined_mel_loss": val_rmel_loss, 
+                        "val_refined_mels_loss": val_rmel_loss, 
                         "val_stop_loss": val_stop_loss,
                         "val_total_loss": val_loss
                     }, 

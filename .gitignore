@@ -14,3 +14,7 @@ venv/
 env/
 
 /.venv/
+
+src/run_backup.sh
+src/venv_gpu/
+src/work_dir/
