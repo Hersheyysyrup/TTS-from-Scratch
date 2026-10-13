@@ -3,10 +3,11 @@ python train.py \
     --experiment_name tacotron2 \
     --run_name tacotron2_testing \
     --working_directory work_dir \
+    --resume_from_checkpoint checkpoint_30 \
     --save_audio_gen work_dir/save_gen \
     --path_to_train_manifest ../data/train_metadata.csv \
     --path_to_val_manifest ../data/test_metadata.csv \
-    --training_epochs 50 \
+    --training_epochs 40 \
     --console_out_iters 5 \
     --wandb_log_iters 5 \
     --checkpoint_epochs 5 \
@@ -43,3 +44,4 @@ python train.py \
     --fmin 0 \
     --fmax 8000 \
     --num_workers 0 
+    
