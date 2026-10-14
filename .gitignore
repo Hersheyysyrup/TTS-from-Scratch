@@ -18,3 +18,9 @@ env/
 src/run_backup.sh
 src/venv_gpu/
 src/work_dir/
+
+# Local inference artifacts and downloaded models
+/src/generated_speech/
+/src/inference_outputs/
+/src/pretrained_models/
+/src/work_dir/
