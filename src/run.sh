@@ -1,15 +1,17 @@
+export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
 python train.py \
     --experiment_name tacotron2 \
     --run_name tacotron2_testing \
     --working_directory work_dir \
+    --resume_from_checkpoint checkpoint_30 \
     --save_audio_gen work_dir/save_gen \
-    --path_to_train_manifest ../data/LJSpeech-1.1/train_metadata.csv \
-    --path_to_val_manifest ../data/LJSpeech-1.1/test_metadata.csv \
-    --training_epochs 50 \
+    --path_to_train_manifest ../data/train_metadata.csv \
+    --path_to_val_manifest ../data/test_metadata.csv \
+    --training_epochs 40 \
     --console_out_iters 5 \
     --wandb_log_iters 5 \
-    --checkpoint_epochs 25 \
-    --batch_size 32 \
+    --checkpoint_epochs 5 \
+    --batch_size 8 \
     --learning_rate 0.001 \
     --weight_decay "1e-6" \
     --adam_eps "1e-6" \
@@ -42,3 +44,4 @@ python train.py \
     --fmin 0 \
     --fmax 8000 \
     --num_workers 0 
+    

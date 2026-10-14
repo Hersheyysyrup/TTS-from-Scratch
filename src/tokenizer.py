@@ -33,4 +33,4 @@ class Tokenizer:
             if include_special_tokens or char not in [self.eos_token, self.pad_token, self.unk_token]:
                 chars.append(char)
 
-        return ".join(chars)"
+        return "".join(chars)

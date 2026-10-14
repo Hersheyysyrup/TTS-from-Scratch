@@ -9,4 +9,18 @@ data/
 .vscode/
 
 .DS_Store
-Thumbs.db
+Thumbs.db.venv/
+venv/
+env/
+
+/.venv/
+
+src/run_backup.sh
+src/venv_gpu/
+src/work_dir/
+
+# Local inference artifacts and downloaded models
+/src/generated_speech/
+/src/inference_outputs/
+/src/pretrained_models/
+/src/work_dir/
