@@ -275,9 +275,31 @@ class SynthesisError(Exception):
     """Raised when speech generation fails."""
 
 
+
 def prepare_text(text: str) -> str:
-    """Normalize whitespace without removing ordinary punctuation."""
+    """Normalize text for the model's supported character set."""
+    # Convert curly punctuation to standard ASCII punctuation.
+    text = text.replace("’", "'").replace("‘", "'")
+    text = text.replace("“", '"').replace("”", '"')
+    text = text.replace("—", "-").replace("–", "-")
+
+    # Expand digits into words.
+    digit_words = {
+        "0": " zero ",
+        "1": " one ",
+        "2": " two ",
+        "3": " three ",
+        "4": " four ",
+        "5": " five ",
+        "6": " six ",
+        "7": " seven ",
+        "8": " eight ",
+        "9": " nine ",
+    }
+    text = "".join(digit_words.get(char, char) for char in text)
+
     return re.sub(r"\s+", " ", text).strip()
+
 
 
 @st.cache_data(show_spinner=False, max_entries=20)
