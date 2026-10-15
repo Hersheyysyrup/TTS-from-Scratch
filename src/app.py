@@ -1,3 +1,6 @@
+import torch
+import streamlit as st
+from synthesize import generate_audio
 import html
 import io
 import os
@@ -329,26 +332,21 @@ def expand_roman_numerals(text: str) -> str:
         roman = match.group(0)
         number = to_int(roman)
 
-        # Avoid interpreting isolated ordinary letters as numerals.
         if len(roman) == 1 and roman not in {"I", "V", "X"}:
             return roman
 
         before = text[:match.start()].lower()
         after = text[match.end():].lower()
 
-        # Monarchs, e.g. Henry VIII -> Henry the Eighth.
         if re.search(r"\b(king|queen|pope|emperor|empress|henry|louis|edward|charles|george|elizabeth)\s+$", before):
             return "the " + ordinal.get(number, cardinal.get(number, str(number)))
 
-        # Centuries, e.g. XX century -> twentieth century.
         if re.match(r"\s*century\b", after):
             return ordinal.get(number, cardinal.get(number, str(number)))
 
-        # Chapter/volume/part references usually use cardinal numbers.
         if re.search(r"\b(chapter|volume|part|book)\s+$", before):
             return cardinal.get(number, str(number))
 
-        # Unknown context: preserve the original rather than guess.
         return roman
 
     return re.sub(roman_pattern, replace, text)
@@ -357,13 +355,12 @@ def expand_roman_numerals(text: str) -> str:
 
 def prepare_text(text: str) -> str:
     """Normalize punctuation and numbers for the model's supported characters."""
-    # Convert curly punctuation to standard ASCII punctuation.
+
     text = text.replace("’", "'").replace("‘", "'")
     text = text.replace("“", '"').replace("”", '"')
     text = text.replace("—", "-").replace("–", "-")
     text = text.replace("…", "...")
 
-    # Convert common ordinal numbers before expanding individual digits.
     ordinals = {
         "1st": "first",
         "2nd": "second",
@@ -408,7 +405,6 @@ def prepare_text(text: str) -> str:
             flags=re.IGNORECASE,
         )
 
-    # Expand any remaining individual digits.
     digit_words = {
         "0": " zero ",
         "1": " one ",
@@ -429,8 +425,19 @@ def prepare_text(text: str) -> str:
 
 
 
+
+@st.cache_resource(show_spinner="Loading Tacotron2 and HiFi-GAN...")
+def load_tts_models():
+    from synthesize import load_models
+    return load_models()
+
+
 @st.cache_data(show_spinner=False, max_entries=20)
 def synthesize(text: str) -> bytes:
+    load_tts_models()
+    from synthesize import generate_audio
+    return generate_audio(text, max_steps=1500)
+
     """
     Use the existing synthesis script and return generated WAV bytes.
     Repeated identical inputs can use cached audio.
