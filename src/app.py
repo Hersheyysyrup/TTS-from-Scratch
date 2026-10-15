@@ -303,12 +303,14 @@ def synthesize(text: str) -> bytes:
         try:
             result = subprocess.run(
                 [
-                    sys.executable,
-                    str(SYNTHESIS_SCRIPT),
-                    text,
-                    "-o",
-                    str(output_path),
-                ],
+    sys.executable,
+    str(SYNTHESIS_SCRIPT),
+    text,
+    "-o",
+    str(output_path),
+    "--max-steps",
+    "1500",
+],
                 cwd=str(BASE_DIR),
                 capture_output=True,
                 encoding="utf-8",
@@ -353,10 +355,7 @@ def wav_seconds(data: bytes):
     except (wave.Error, EOFError, OSError):
         return None
 
-
-# ---------------------------------------------------------------------
-# Sidebar
-# ---------------------------------------------------------------------
+###sidebar
 
 script_ok = SYNTHESIS_SCRIPT.is_file()
 
@@ -374,10 +373,6 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-
-# ---------------------------------------------------------------------
-# Masthead
-# ---------------------------------------------------------------------
 
 status_text = (
     "Voice script found"
@@ -401,10 +396,7 @@ if not script_ok:
         f"Synthesis script not found: {SYNTHESIS_SCRIPT}"
     )
 
-
-# ---------------------------------------------------------------------
-# Text-to-speech
-# ---------------------------------------------------------------------
+###tts
 
 text = st.text_area(
     "What should it say?",
