@@ -7,6 +7,7 @@ import sys
 import tempfile
 import wave
 from pathlib import Path
+import soundfile as sf
 
 import streamlit as st
 
@@ -365,6 +366,48 @@ def synthesize(text: str) -> bytes:
             output_path.unlink(missing_ok=True)
 
 
+def synthesize_long_text(text: str) -> bytes:
+    """Generate long passages sentence by sentence and combine the WAV audio."""
+    import numpy as np
+    import soundfile as sf
+
+    sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+    sentences = [sentence.strip() for sentence in sentences if sentence.strip()]
+
+    if not sentences:
+        raise SynthesisError("Please enter some text.")
+
+    audio_parts = []
+    sample_rate = None
+
+    for sentence in sentences:
+        audio_bytes = synthesize(sentence)
+        audio, sr = sf.read(io.BytesIO(audio_bytes), dtype="float32")
+
+        if audio.ndim == 2:
+            audio = audio.mean(axis=1)
+
+        if sample_rate is None:
+            sample_rate = sr
+        elif sr != sample_rate:
+            raise SynthesisError("Audio sample rates do not match.")
+
+        audio_parts.append(audio)
+
+    silence = np.zeros(int(sample_rate * 0.25), dtype=np.float32)
+    combined = []
+
+    for index, audio in enumerate(audio_parts):
+        if index:
+            combined.append(silence)
+        combined.append(audio)
+
+    output = io.BytesIO()
+    sf.write(output, np.concatenate(combined), sample_rate, format="WAV")
+    return output.getvalue()
+
+
+
 def wav_seconds(data: bytes):
     """Return WAV duration in seconds when readable."""
     try:
@@ -447,7 +490,13 @@ if st.button(
             with st.spinner(
                 "Generating speech with Tacotron2 + HiFi-GAN..."
             ):
-                audio_bytes = synthesize(cleaned_text)
+                
+                if len(cleaned_text) > 140:
+                    audio_bytes = synthesize_long_text(cleaned_text)
+                else:
+                    audio_bytes = synthesize(cleaned_text)
+
+                    
 
             st.session_state["last_audio"] = audio_bytes
 
