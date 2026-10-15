@@ -276,15 +276,139 @@ class SynthesisError(Exception):
     """Raised when speech generation fails."""
 
 
+def expand_roman_numerals(text: str) -> str:
+    """Convert common Roman numeral contexts into natural spoken English."""
+    import re
+
+    def to_int(roman: str) -> int:
+        values = {
+            "I": 1, "V": 5, "X": 10, "L": 50,
+            "C": 100, "D": 500, "M": 1000,
+        }
+        total = 0
+        previous = 0
+
+        for char in reversed(roman.upper()):
+            value = values[char]
+            if value < previous:
+                total -= value
+            else:
+                total += value
+            previous = value
+
+        return total
+
+    cardinal = {
+        1: "one", 2: "two", 3: "three", 4: "four", 5: "five",
+        6: "six", 7: "seven", 8: "eight", 9: "nine", 10: "ten",
+        11: "eleven", 12: "twelve", 13: "thirteen", 14: "fourteen",
+        15: "fifteen", 16: "sixteen", 17: "seventeen", 18: "eighteen",
+        19: "nineteen", 20: "twenty", 21: "twenty one",
+        22: "twenty two", 23: "twenty three", 24: "twenty four",
+        25: "twenty five", 26: "twenty six", 27: "twenty seven",
+        28: "twenty eight", 29: "twenty nine", 30: "thirty",
+        40: "forty", 50: "fifty", 60: "sixty", 70: "seventy",
+        80: "eighty", 90: "ninety", 100: "one hundred",
+    }
+
+    ordinal = {
+        1: "first", 2: "second", 3: "third", 4: "fourth",
+        5: "fifth", 6: "sixth", 7: "seventh", 8: "eighth",
+        9: "ninth", 10: "tenth", 11: "eleventh", 12: "twelfth",
+        13: "thirteenth", 14: "fourteenth", 15: "fifteenth",
+        16: "sixteenth", 17: "seventeenth", 18: "eighteenth",
+        19: "nineteenth", 20: "twentieth", 21: "twenty first",
+        22: "twenty second", 23: "twenty third", 24: "twenty fourth",
+        25: "twenty fifth", 26: "twenty sixth", 27: "twenty seventh",
+        28: "twenty eighth", 29: "twenty ninth", 30: "thirtieth",
+    }
+
+    roman_pattern = r"\b[IVXLCDM]{1,12}\b"
+
+    def replace(match):
+        roman = match.group(0)
+        number = to_int(roman)
+
+        # Avoid interpreting isolated ordinary letters as numerals.
+        if len(roman) == 1 and roman not in {"I", "V", "X"}:
+            return roman
+
+        before = text[:match.start()].lower()
+        after = text[match.end():].lower()
+
+        # Monarchs, e.g. Henry VIII -> Henry the Eighth.
+        if re.search(r"\b(king|queen|pope|emperor|empress|henry|louis|edward|charles|george|elizabeth)\s+$", before):
+            return "the " + ordinal.get(number, cardinal.get(number, str(number)))
+
+        # Centuries, e.g. XX century -> twentieth century.
+        if re.match(r"\s*century\b", after):
+            return ordinal.get(number, cardinal.get(number, str(number)))
+
+        # Chapter/volume/part references usually use cardinal numbers.
+        if re.search(r"\b(chapter|volume|part|book)\s+$", before):
+            return cardinal.get(number, str(number))
+
+        # Unknown context: preserve the original rather than guess.
+        return roman
+
+    return re.sub(roman_pattern, replace, text)
+
+
 
 def prepare_text(text: str) -> str:
-    """Normalize text for the model's supported character set."""
+    """Normalize punctuation and numbers for the model's supported characters."""
     # Convert curly punctuation to standard ASCII punctuation.
     text = text.replace("’", "'").replace("‘", "'")
     text = text.replace("“", '"').replace("”", '"')
     text = text.replace("—", "-").replace("–", "-")
+    text = text.replace("…", "...")
 
-    # Expand digits into words.
+    # Convert common ordinal numbers before expanding individual digits.
+    ordinals = {
+        "1st": "first",
+        "2nd": "second",
+        "3rd": "third",
+        "4th": "fourth",
+        "5th": "fifth",
+        "6th": "sixth",
+        "7th": "seventh",
+        "8th": "eighth",
+        "9th": "ninth",
+        "10th": "tenth",
+        "11th": "eleventh",
+        "12th": "twelfth",
+        "13th": "thirteenth",
+        "14th": "fourteenth",
+        "15th": "fifteenth",
+        "16th": "sixteenth",
+        "17th": "seventeenth",
+        "18th": "eighteenth",
+        "19th": "nineteenth",
+        "20th": "twentieth",
+        "21st": "twenty first",
+        "22nd": "twenty second",
+        "23rd": "twenty third",
+        "24th": "twenty fourth",
+        "25th": "twenty fifth",
+        "26th": "twenty sixth",
+        "27th": "twenty seventh",
+        "28th": "twenty eighth",
+        "29th": "twenty ninth",
+        "30th": "thirtieth",
+        "31st": "thirty first",
+    }
+
+    for number, word in sorted(
+        ordinals.items(), key=lambda item: len(item[0]), reverse=True
+    ):
+        text = re.sub(
+            rf"\b{re.escape(number)}\b",
+            word,
+            text,
+            flags=re.IGNORECASE,
+        )
+
+    # Expand any remaining individual digits.
     digit_words = {
         "0": " zero ",
         "1": " one ",
@@ -297,9 +421,11 @@ def prepare_text(text: str) -> str:
         "8": " eight ",
         "9": " nine ",
     }
+
     text = "".join(digit_words.get(char, char) for char in text)
 
     return re.sub(r"\s+", " ", text).strip()
+
 
 
 
